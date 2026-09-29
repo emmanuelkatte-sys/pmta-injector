@@ -1,0 +1,26 @@
+# github.com/inconshreveable/mousetrap v1.1.0
+## explicit; go 1.18
+github.com/inconshreveable/mousetrap
+# github.com/rest-mail/go-arc v0.2.3
+## explicit; go 1.25.0
+github.com/rest-mail/go-arc
+# github.com/rest-mail/go-dkim v0.2.1
+## explicit; go 1.25.0
+github.com/rest-mail/go-dkim
+# github.com/spf13/cobra v1.8.0
+## explicit; go 1.15
+github.com/spf13/cobra
+# github.com/spf13/pflag v1.0.5
+## explicit; go 1.12
+github.com/spf13/pflag
+# golang.org/x/text v0.21.0
+## explicit; go 1.21
+golang.org/x/text/encoding
+golang.org/x/text/encoding/internal
+golang.org/x/text/encoding/internal/identifier
+golang.org/x/text/encoding/japanese
+golang.org/x/text/encoding/simplifiedchinese
+golang.org/x/text/transform
+# gopkg.in/yaml.v3 v3.0.1
+## explicit
+gopkg.in/yaml.v3

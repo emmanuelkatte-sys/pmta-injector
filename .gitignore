@@ -1,0 +1,17 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+
+# Test binary
+*.test
+*.out
+
+# OS & Editor
+.DS_Store
+.idea/
+.vscode/
+*.log
