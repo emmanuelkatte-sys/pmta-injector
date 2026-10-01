@@ -47,6 +47,7 @@ type Config struct {
 
 	Backtest BacktestConfig `yaml:"backtest,omitempty"`
 	Arc      ArcConfig      `yaml:"arc,omitempty"`
+	ReceivedChain ReceivedChainConfig `yaml:"received_chain,omitempty"`
 
 	DryRun      bool              `yaml:"-"`
 }
@@ -58,6 +59,20 @@ type ArcConfig struct {
 	Selector       string `yaml:"selector"`
 	PrivateKeyPath string `yaml:"private_key_path"`
 	PrivateKeyPEM  string `yaml:"private_key_pem,omitempty"`
+}
+
+type ReceivedChainConfig struct {
+	Enabled          bool   `yaml:"enabled"`
+	ChainType        string `yaml:"chain_type"`
+	IPMode           string `yaml:"ip_mode"`
+	IPPool           string `yaml:"ip_pool"`
+	Hops             int    `yaml:"hops"`
+	MTAFlavor        string `yaml:"mta_flavor"`
+	DomainStyle      string `yaml:"domain_style"`
+	CustomTemplate   string `yaml:"custom_template"`
+	StripAuthResults bool   `yaml:"strip_auth_results"`
+	StripReceived    bool   `yaml:"strip_received"`
+	StripClientIP    bool   `yaml:"strip_client_ip"`
 }
 
 type BacktestConfig struct {
@@ -142,13 +157,18 @@ type AppConfig struct {
 }
 
 type SenderConfig struct {
-	Mode            string   `yaml:"mode"`
-	FromAddress     string   `yaml:"from_address"`
-	FromName        string   `yaml:"from_name"`
-	EnvelopeFrom    string   `yaml:"envelope_from"`
-	ReplyTo         string   `yaml:"reply_to"`
-	DisplayNames    []string `yaml:"display_names"`
-	DisplayNameMode string   `yaml:"display_name_mode"`
+	Mode                   string   `yaml:"mode"`
+	FromAddress            string   `yaml:"from_address"`
+	FromName               string   `yaml:"from_name"`
+	EnvelopeFrom           string   `yaml:"envelope_from"`
+	ReplyTo                string   `yaml:"reply_to"`
+	SenderMode             string   `yaml:"sender_mode"`
+	SenderAddress          string   `yaml:"sender_address"`
+	RecipientDisplayMode   string   `yaml:"recipient_display_mode"`
+	RecipientHonorific     string   `yaml:"recipient_honorific"`
+	RecipientCustomPhrases []string `yaml:"recipient_custom_phrases"`
+	DisplayNames           []string `yaml:"display_names"`
+	DisplayNameMode        string   `yaml:"display_name_mode"`
 	// 【2026-06-15】显示名字节反转隐藏(RLO 反指纹)：true 时对显示名做"字节反转 + RLO 回正"，
 	// 收件人看正常、扫描器看反序。仅 UTF-8 生效（控制符无法编码进 Shift_JIS 等）。
 	DisplayNameBidiReverse bool `yaml:"display_name_bidi_reverse"`
@@ -386,6 +406,14 @@ type HeadersConfig struct {
 	ClientProfile string `yaml:"client_profile,omitempty"`
 	// 【Haraka26】显示名支持 \r\n（将字面量 \r\n 替换为真正的回车换行字节）
 	DisplayNameNewline bool `yaml:"display_name_newline,omitempty"`
+
+	SenderMode             string   `yaml:"sender_mode"`
+	SenderAddress          string   `yaml:"sender_address"`
+	RcvdChainEnable        bool     `yaml:"rcvd_chain_enable"`
+	RcvdChainType          string   `yaml:"rcvd_chain_type"`
+	RecipientDisplayMode   string   `yaml:"recipient_display_mode"`
+	RecipientHonorific     string   `yaml:"recipient_honorific"`
+	RecipientCustomPhrases []string `yaml:"recipient_custom_phrases"`
 
 	// =====================================================================
 	// 【扩展邮件头 2026-05-13】P0/P1/P2/P3 共 28 个邮件头 + 随机使用控制

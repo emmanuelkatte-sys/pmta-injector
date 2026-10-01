@@ -193,33 +193,130 @@ func (vp *VariableProcessor) Process(content string, recipient *types.Recipient)
 	// 实现在 variables_ext.go，被 Received 随机模板和 List-Unsubscribe 4 模式池模式调用
 	content = vp.processExtendedVariables(content)
 
+	// 11. 处理 Spintax 同义旋转语法 {A|B|C}
+	content = ProcessSpintax(content, vp.random)
+
 	return content
 }
 
-// processTimeVariables 处理时间变量
+// processTimeVariables 处理时间与拟真安全/扰动变量
 func (vp *VariableProcessor) processTimeVariables(content string) string {
 	now := time.Now()
+	tomorrow := now.AddDate(0, 0, 1)
+	yesterday := now.AddDate(0, 0, -1)
+	afterTomorrow := now.AddDate(0, 0, 2)
+	thirdDay := now.AddDate(0, 0, 3)
+	lastWeek := now.AddDate(0, 0, -7)
 
 	replacements := map[string]string{
-		"{DATE_TIME}":  now.Format("2006-01-02 15:04:05"),
-		"{DATE}":       now.Format("2006-01-02"),
-		"{TIME}":       now.Format("15:04:05"),
-		"{YEAR}":       now.Format("2006"),
-		"{MONTH}":      now.Format("01"),
-		"{DAY}":        now.Format("02"),
-		"{HOUR}":       now.Format("15"),
-		"{MINUTE}":     now.Format("04"),
-		"{SECOND}":     now.Format("05"),
-		"{TIMESTAMP}":  strconv.FormatInt(now.Unix(), 10),
-		"{DATE_JP}":    now.Format("2006年01月02日"),
-		"{DATE_CN}":    fmt.Sprintf("%d年%d月%d日", now.Year(), now.Month(), now.Day()),
-		"{WEEKDAY}":    getWeekdayCN(now.Weekday()),
-		"{WEEKDAY_EN}": now.Weekday().String(),
+		"{DATE_TIME}":                     now.Format("2006-01-02 15:04:05"),
+		"{DATE}":                          now.Format("2006/01/02"),
+		"{TIME}":                          now.Format("15:04:05"),
+		"{YEAR}":                          now.Format("2006"),
+		"{MONTH}":                         now.Format("01"),
+		"{DAY}":                           now.Format("02"),
+		"{HOUR}":                          now.Format("15"),
+		"{MINUTE}":                        now.Format("04"),
+		"{SECOND}":                        now.Format("05"),
+		"{TIMESTAMP}":                     strconv.FormatInt(now.Unix(), 10),
+		"{DATE_JP}":                       now.Format("2006年01月02日"),
+		"{DATE_CN}":                       fmt.Sprintf("%d年%d月%d日", now.Year(), now.Month(), now.Day()),
+		"{DATE_KANJI}":                    now.Format("2006年01月02日"),
+		"{DATE_FULLWIDTH}":                toFullwidthDigits(now.Format("2006年01月02日")),
+		"{TOMORROW_DATE}":                 tomorrow.Format("2006/01/02"),
+		"{TOMORROW_TIME}":                 tomorrow.Format("15:04:05"),
+		"{TOMORROW_DATE_KANJI}":           tomorrow.Format("2006年01月02日"),
+		"{YESTERDAY_DATE}":                yesterday.Format("2006/01/02"),
+		"{YESTERDAY_TIME}":                yesterday.Format("15:04:05"),
+		"{YESTERDAY_DATE_KANJI}":          yesterday.Format("2006年01月02日"),
+		"{YESTERDAY_DATE_KANJI_FULLWIDTH}": toFullwidthDigits(yesterday.Format("2006年01月02日")),
+		"{AFTER_TOMORROW_DATE}":           afterTomorrow.Format("2006/01/02"),
+		"{AFTER_TOMORROW_TIME}":           afterTomorrow.Format("15:04:05"),
+		"{AFTER_TOMORROW_DATE_KANJI}":     afterTomorrow.Format("2006年01月02日"),
+		"{THIRD_DAY_DATE}":                thirdDay.Format("2006/01/02"),
+		"{THIRD_DAY_TIME}":                thirdDay.Format("15:04:05"),
+		"{THIRD_DAY_DATE_KANJI}":          thirdDay.Format("2006年01月02日"),
+		"{LAST_WEEK_DATE}":                lastWeek.Format("2006/01/02"),
+		"{LAST_WEEK_TIME}":                lastWeek.Format("15:04:05"),
+		"{LAST_WEEK_DATE_KANJI}":          lastWeek.Format("2006年01月02日"),
+		"{LAST_WEEK_DATE_KANJI_FULLWIDTH}": toFullwidthDigits(lastWeek.Format("2006年01月02日")),
+		"{WEEKDAY}":                       getWeekdayCN(now.Weekday()),
+		"{WEEKDAY_EN}":                    now.Weekday().String(),
+		"{WEEKNUMBER}":                    fmt.Sprintf("%02d", (now.YearDay()-int(now.Weekday())+7)/7),
+		"{ISO8601}":                       now.Format(time.RFC3339),
+		"{LOGIN_TIME}":                    now.Format("2006/01/02 15:04"),
+		"{LOGIN_TIME_ISO}":                now.Format("2006-01-02 15:04:05"),
+		"{LOGIN_TIME_KANJI}":              now.Format("2006年01月02日 15:04"),
+		"{LOGIN_TIME_FULLWIDTH_KANJI}":    toFullwidthDigits(now.Format("2006年01月02日 15:04")),
+		"{LOGIN_LOCATION}":                vp.randomLoginLocation(),
+		"{LOGIN_DEVICE}":                  vp.randomLoginDevice(),
+		"{FANHAO}":                        vp.randomFanhao(),
+		"{SHUZI}":                         fmt.Sprintf("%05d", 10000+safeIntn(vp.random, 90000)),
+		"{RANDNUM}":                       fmt.Sprintf("%d", 111+safeIntn(vp.random, 888)),
+		"{RANDOM_4}":                      vp.generateRandom(4, "alphanumeric"),
+		"{RANDOM_6}":                      vp.generateRandom(6, "alphanumeric"),
+		"{RANDOM_12}":                     vp.generateRandom(12, "alphanumeric"),
+		"{RANDOM_24}":                     vp.generateRandom(24, "alphanumeric"),
+		"{RANDSTRING}":                    vp.generateRandom(12, "alphanumeric"),
+		"{24RANDSTRING24S}":               vp.generateRandom(24, "alphanumeric"),
+		"{64RANDSTRING64S}":               vp.generateRandom(64, "alphanumeric"),
+		"{RANDOM_COMMENT}":                fmt.Sprintf("<!-- %s -->", vp.generateRandom(8, "alphanumeric")),
+		"{RANDOM_STYLE_COMMENT}":          fmt.Sprintf("/* %s */", vp.generateRandom(6, "alphanumeric")),
+		"{RANDOM_INVISIBLE_CHAR}":         "&#8203;",
+		"{INVISIBLE_CHAR}":                "&#8203;",
+		"{RANDOM_ID}":                     fmt.Sprintf("id=\"id_%s\"", vp.generateRandom(6, "alphanumeric")),
+		"{RANDOM_CLASS}":                  fmt.Sprintf("class=\"c_%s\"", vp.generateRandom(6, "alphanumeric")),
+		"{RANDOM_MARGIN}":                 fmt.Sprintf("%dpx", safeIntn(vp.random, 3)),
+		"{RANDOM_PADDING}":                fmt.Sprintf("%dpx", safeIntn(vp.random, 2)),
+		"{RANDOM_OPACITY}":                fmt.Sprintf("0.%d", 98+safeIntn(vp.random, 2)),
+		"{RANDOM_LETTER_SPACING}":          fmt.Sprintf("%.2fpx", float64(safeIntn(vp.random, 21)-10)/100.0),
+		"{RANDOM_LINE_HEIGHT}":             fmt.Sprintf("%.2f", float64(135+safeIntn(vp.random, 11))/100.0),
+		"{RANDOM_FONT_SIZE_ADJ}":           fmt.Sprintf("%d", safeIntn(vp.random, 3)-1),
+		"{RANDOM_COLOR_ADJ}":               fmt.Sprintf("#%02x%02x%02x", 51+safeIntn(vp.random, 18), 51+safeIntn(vp.random, 18), 51+safeIntn(vp.random, 18)),
+		"{RANDOM_BG_ADJ}":                  fmt.Sprintf("#%02x%02x%02x", 248+safeIntn(vp.random, 5), 248+safeIntn(vp.random, 5), 248+safeIntn(vp.random, 5)),
+		"{RANDOM_BORDER_ADJ}":              fmt.Sprintf("#%02x%02x%02x", 230+safeIntn(vp.random, 11), 230+safeIntn(vp.random, 11), 230+safeIntn(vp.random, 11)),
+		"{RANDOM_WHITESPACE}":              strings.Repeat(" ", safeIntn(vp.random, 3)),
+		"{RANDOM_NEWLINE}":                 "\n",
 	}
 
 	for k, v := range replacements {
 		content = strings.ReplaceAll(content, k, v)
 		content = strings.ReplaceAll(content, strings.ToLower(k), v)
+		if strings.HasPrefix(k, "{") && strings.HasSuffix(k, "}") {
+			inner := k[1 : len(k)-1]
+			content = strings.ReplaceAll(content, "{{"+inner+"}}", v)
+			content = strings.ReplaceAll(content, "{{"+strings.ToLower(inner)+"}}", v)
+		}
+	}
+
+	// 兼容 4.py 中的 % 前缀与 [...] 格式变量
+	percentVars := map[string]string{
+		"%time":            now.Format("15:04:05"),
+		"%date":            now.Format("2006/01/02"),
+		"%year":            now.Format("2006"),
+		"%month":           now.Format("01"),
+		"%day":             now.Format("02"),
+		"%hour":            now.Format("15"),
+		"%minute":          now.Format("04"),
+		"%second":          now.Format("05"),
+		"%weekday":         now.Weekday().String(),
+		"%iso8601":         now.Format(time.RFC3339),
+		"%randstring":      vp.generateRandom(12, "alphanumeric"),
+		"%24randstring24s": vp.generateRandom(24, "alphanumeric"),
+		"%64randstring64s": vp.generateRandom(64, "alphanumeric"),
+		"%fanhao":          vp.randomFanhao(),
+		"%shuzi":           fmt.Sprintf("%06d", 700000+safeIntn(vp.random, 299999)),
+		"%randnum":         fmt.Sprintf("%d", 111+safeIntn(vp.random, 888)),
+		"%tomorrow_time":   tomorrow.Format("15:04:05"),
+		"%tomorrow_date":   tomorrow.Format("2006/01/02"),
+		"%1_date":          tomorrow.Format("2006/01/02"),
+		"[RAND_TEXT-MIX_20_30]": vp.generateRandom(19, "alphanumeric"),
+		"[loglog23]":       vp.generateRandom(8, "alphanumeric"),
+		"[loglog24]":       vp.generateRandom(8, "alphanumeric"),
+		"[loglog25]":       vp.generateRandom(8, "alphanumeric"),
+	}
+	for k, v := range percentVars {
+		content = strings.ReplaceAll(content, k, v)
 	}
 
 	return content
@@ -240,27 +337,39 @@ func (vp *VariableProcessor) processRecipientVariables(content string, r *types.
 		domain = parts[1]
 	}
 
+	honorific := vp.resolveHonorific()
+
 	replacements := map[string]string{
-		"{TO_EMAIL}":      email,
-		"{EMAIL}":         email,
-		"{RECEIVER_EMAIL}": email,
-		"{TO_USER}":       user,
-		"{TO_DOMAIN}":     domain,
-		"{TO_NAME}":       r.Name,
-		"{NAME}":          r.Name,
-		"{RECEIVER_NAME}": r.Name,
-		"{TO_FIRST}":      r.FirstName,
-		"{TO_LAST}":       r.LastName,
-		"{TO_USER_UPPER}": strings.ToUpper(user),
-		"{TO_USER_LOWER}": strings.ToLower(user),
-		"{TO_USER_CAP}":   capitalizeFirst(user),
-		"{TO_NAME_UPPER}": strings.ToUpper(r.Name),
-		"{TO_NAME_LOWER}": strings.ToLower(r.Name),
+		"{TO_EMAIL}":         email,
+		"{EMAIL}":            email,
+		"{RECEIVER_EMAIL}":    email,
+		"{RECIPIENT_EMAIL}":   email,
+		"{RECEIVER_ADDRESS}": email,
+		"[RECEIVER_ADDRESS]": email,
+		"{TO_USER}":          user,
+		"{USERNAME}":         user,
+		"{TO_DOMAIN}":        domain,
+		"{TO_NAME}":          r.Name,
+		"{NAME}":             r.Name,
+		"{RECEIVER_NAME}":    r.Name,
+		"{HONORIFIC}":        honorific,
+		"{TO_FIRST}":         r.FirstName,
+		"{TO_LAST}":          r.LastName,
+		"{TO_USER_UPPER}":    strings.ToUpper(user),
+		"{TO_USER_LOWER}":    strings.ToLower(user),
+		"{TO_USER_CAP}":      capitalizeFirst(user),
+		"{TO_NAME_UPPER}":    strings.ToUpper(r.Name),
+		"{TO_NAME_LOWER}":    strings.ToLower(r.Name),
 	}
 
 	for k, v := range replacements {
 		content = strings.ReplaceAll(content, k, v)
 		content = strings.ReplaceAll(content, strings.ToLower(k), v)
+		if strings.HasPrefix(k, "{") && strings.HasSuffix(k, "}") {
+			inner := k[1 : len(k)-1]
+			content = strings.ReplaceAll(content, "{{"+inner+"}}", v)
+			content = strings.ReplaceAll(content, "{{"+strings.ToLower(inner)+"}}", v)
+		}
 	}
 
 	// 处理收件人自定义字段（来自CSV的额外列）
@@ -323,12 +432,33 @@ func (vp *VariableProcessor) processSenderVariables(content string) string {
 	if len(parts) > 1 {
 		domain = parts[1]
 	}
+	mainDomain := getRootDomain(domain)
+
+	serverDomain := domain
+	if d, ok := vp.cfg.Template.GlobalVariables["server_domain"].(string); ok && d != "" {
+		serverDomain = d
+	}
+	serverHost := ""
+	if h, ok := vp.cfg.Template.GlobalVariables["server_hostname"].(string); ok && h != "" {
+		serverHost = h
+	}
+	serverIP := ""
+	if ip, ok := vp.cfg.Template.GlobalVariables["server_ip"].(string); ok && ip != "" {
+		serverIP = ip
+	}
 
 	replacements := map[string]string{
-		"{FROM_EMAIL}":  fromAddr,
-		"{FROM_USER}":   user,
-		"{FROM_DOMAIN}": domain,
-		"{FROM_NAME}":   vp.cfg.Sender.FromName,
+		"{FROM_EMAIL}":       fromAddr,
+		"{SENDER_EMAIL}":     fromAddr,
+		"{FROM_USER}":        user,
+		"{FROM_DOMAIN}":      domain,
+		"{SENDER_DOMAIN}":    domain,
+		"{FROM_MAIN_DOMAIN}": mainDomain,
+		"{MAIN_DOMAIN}":      mainDomain,
+		"{FROM_NAME}":        vp.cfg.Sender.FromName,
+		"{SERVER_DOMAIN}":    serverDomain,
+		"{SERVER_HOSTNAME}":  serverHost,
+		"{SERVER_IP}":        serverIP,
 	}
 
 	for k, v := range replacements {
@@ -768,4 +898,131 @@ func NormalizeLineEndings(text string) string {
 	text = strings.ReplaceAll(text, "\r", "\n")
 	text = strings.ReplaceAll(text, "\n", "\r\n")
 	return text
+}
+
+// reSpintax 匹配最内层的 {A|B|C} 旋转结构
+var reSpintax = regexp.MustCompile(`\{([^{}]+?\|[^{}]*?)\}`)
+
+// ProcessSpintax 执行递归同义旋转语法 {A|B|C}，支持多层嵌套
+func ProcessSpintax(text string, rng *rand.Rand) string {
+	if !strings.Contains(text, "|") {
+		return text
+	}
+	maxIterations := 20
+	for maxIterations > 0 && strings.Contains(text, "|") {
+		loc := reSpintax.FindStringSubmatchIndex(text)
+		if loc == nil {
+			break
+		}
+		inner := text[loc[2]:loc[3]]
+		options := strings.Split(inner, "|")
+		idx := 0
+		if rng != nil && len(options) > 1 {
+			idx = safeIntn(rng, len(options))
+		} else if len(options) > 1 {
+			idx = rand.Intn(len(options))
+		}
+		picked := options[idx]
+		text = text[:loc[0]] + picked + text[loc[1]:]
+		maxIterations--
+	}
+	return text
+}
+
+func toFullwidthDigits(s string) string {
+	var sb strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			sb.WriteRune(r - '0' + '０')
+		} else {
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
+func getRootDomain(d string) string {
+	d = strings.ToLower(strings.TrimSpace(d))
+	if d == "" {
+		return "example.com"
+	}
+	parts := strings.Split(d, ".")
+	if len(parts) <= 2 {
+		return d
+	}
+	sld := parts[len(parts)-2]
+	specialSlds := map[string]bool{
+		"co": true, "ne": true, "or": true, "ac": true, "go": true,
+		"com": true, "net": true, "org": true, "ed": true, "lg": true,
+	}
+	if len(parts) >= 3 && specialSlds[sld] {
+		return strings.Join(parts[len(parts)-3:], ".")
+	}
+	return strings.Join(parts[len(parts)-2:], ".")
+}
+
+func (vp *VariableProcessor) resolveHonorific() string {
+	phrases := vp.cfg.Headers.RecipientCustomPhrases
+	if len(phrases) == 0 {
+		phrases = vp.cfg.Sender.RecipientCustomPhrases
+	}
+	if len(phrases) > 0 {
+		return phrases[safeIntn(vp.random, len(phrases))]
+	}
+	h := strings.ToLower(strings.TrimSpace(vp.cfg.Headers.RecipientHonorific))
+	if h == "" {
+		h = strings.ToLower(strings.TrimSpace(vp.cfg.Sender.RecipientHonorific))
+	}
+	switch h {
+	case "sama", "様":
+		return "様"
+	case "sensei", "先生":
+		return "先生"
+	case "onchu", "御中":
+		return "御中"
+	case "dono", "殿":
+		return "殿"
+	case "san", "さん":
+		return "さん"
+	case "random":
+		opts := []string{"様", "先生", "御中", "殿", "さん"}
+		return opts[safeIntn(vp.random, len(opts))]
+	default:
+		if h != "" {
+			return h
+		}
+		return "様"
+	}
+}
+
+func (vp *VariableProcessor) randomLoginLocation() string {
+	locs := []string{
+		"Tokyo, Japan", "Osaka, Japan", "Yokohama, Japan", "Nagoya, Japan",
+		"Fukuoka, Japan", "Sapporo, Japan", "Kyoto, Japan", "Kobe, Japan",
+		"Kawasaki, Japan", "Saitama, Japan", "Chiba, Japan", "Sendai, Japan",
+	}
+	return locs[safeIntn(vp.random, len(locs))]
+}
+
+func (vp *VariableProcessor) randomLoginDevice() string {
+	devices := []string{
+		"Windows 11 / Chrome 126",
+		"Windows 11 / Edge 125",
+		"iPhone 15 Pro (iOS 17.4) / Safari",
+		"iPhone 14 (iOS 16.6) / Safari",
+		"macOS 14.4 / Safari 17.4",
+		"macOS 13.6 / Chrome 125",
+		"Pixel 8 (Android 14) / Chrome",
+		"Galaxy S24 (Android 14) / Chrome",
+		"Sony Xperia 1 V (Android 14) / Chrome",
+		"Windows 10 / Firefox 125",
+	}
+	return devices[safeIntn(vp.random, len(devices))]
+}
+
+func (vp *VariableProcessor) randomFanhao() string {
+	letters := "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	i1 := safeIntn(vp.random, len(letters))
+	i2 := safeIntn(vp.random, len(letters))
+	return string([]byte{letters[i1], letters[i2]})
 }

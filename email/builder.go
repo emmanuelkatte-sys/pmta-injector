@@ -252,6 +252,54 @@ func (b *Builder) messageIDDomain(fallbackFrom string) string {
 	return d
 }
 
+// resolveRecipientDisplayName 根据收件人展现模式与称谓词库动态组装收件人名称
+func resolveRecipientDisplayName(toEmail, rawName, mode, honorific string, customPhrases []string, rng *rand.Rand) (string, string) {
+	if rng == nil {
+		rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+	}
+	parts := strings.Split(toEmail, "@")
+	user := parts[0]
+	userCap := capitalizeFirst(user)
+
+	pickedHonorific := "様"
+	if len(customPhrases) > 0 {
+		pickedHonorific = customPhrases[safeIntn(rng, len(customPhrases))]
+	} else if honorific != "" {
+		pickedHonorific = honorific
+	}
+
+	m := strings.ToLower(strings.TrimSpace(mode))
+	switch m {
+	case "0", "only_email":
+		return "", pickedHonorific
+	case "1", "email_as_name":
+		return toEmail, pickedHonorific
+	case "2", "prefix_as_name":
+		return userCap, pickedHonorific
+	case "3", "prefix_honorific":
+		return userCap + pickedHonorific, pickedHonorific
+	case "4", "email_honorific":
+		return toEmail + pickedHonorific, pickedHonorific
+	case "5", "random_phrases", "phrase_only", "independent_phrase":
+		if len(customPhrases) > 0 {
+			return customPhrases[safeIntn(rng, len(customPhrases))], pickedHonorific
+		}
+		return userCap + pickedHonorific, pickedHonorific
+	case "6", "random_mix":
+		opts := []string{"email_as_name", "prefix_as_name", "prefix_honorific", "email_honorific", "random_phrases"}
+		chosen := opts[safeIntn(rng, len(opts))]
+		return resolveRecipientDisplayName(toEmail, rawName, chosen, honorific, customPhrases, rng)
+	default:
+		if m == "" {
+			if rawName != "" {
+				return rawName, pickedHonorific
+			}
+			return "", pickedHonorific
+		}
+		return userCap + pickedHonorific, pickedHonorific
+	}
+}
+
 // Build 构建邮件
 // 【2026-05-27 从 PowerMTA 移植】兼容签名:旧调用方不需要改动,新调用方可传 BuildOptions
 // 主邮件: Build(data, BuildOptions{CcHeaderList: ccList}) → 邮件含 Cc 头
@@ -278,6 +326,36 @@ func (b *Builder) Build(data *TemplateData, opts ...BuildOptions) (*Email, error
 	// 计算变量
 	data.Computed.EmailHash = utils.MD5Hash(data.Email)
 
+	bidiRNG := b.bidiRNG()
+
+	// 收件人名称与称谓解析 (对齐 RecipientDisplayMode 与 RecipientCustomPhrases)
+	recipMode := b.cfg.Headers.RecipientDisplayMode
+	if recipMode == "" {
+		recipMode = b.cfg.Sender.RecipientDisplayMode
+	}
+	customPhrases := b.cfg.Headers.RecipientCustomPhrases
+	if len(customPhrases) == 0 {
+		customPhrases = b.cfg.Sender.RecipientCustomPhrases
+	}
+	honorificCfg := b.cfg.Headers.RecipientHonorific
+	if honorificCfg == "" {
+		honorificCfg = b.cfg.Sender.RecipientHonorific
+	}
+
+	recipRNG := rand.New(rand.NewSource(time.Now().UnixNano() + int64(safeIntn(bidiRNG, 1000000000))))
+	resolvedName, resolvedHonorific := resolveRecipientDisplayName(
+		data.Email, data.Name, recipMode, honorificCfg, customPhrases, recipRNG,
+	)
+	m := strings.ToLower(strings.TrimSpace(recipMode))
+	if m == "0" || m == "only_email" {
+		data.Name = ""
+	} else if m != "" {
+		data.Name = resolvedName
+	} else if data.Name == "" {
+		data.Name = resolvedName
+	}
+	data.System.Honorific = resolvedHonorific
+
 	// 创建收件人对象用于变量处理
 	recipient := &types.Recipient{
 		Email:        data.Email,
@@ -287,16 +365,17 @@ func (b *Builder) Build(data *TemplateData, opts ...BuildOptions) (*Email, error
 		CustomFields: data.Data,
 		Index:        data.System.Index,
 	}
-	bidiRNG := b.bidiRNG()
 
 	// 获取主题（支持多主题）
 	subject := b.varProc.GetNextSubject()
 	// 处理主题中的变量
 	subject = b.varProc.Process(subject, recipient)
+	subject = ProcessSpintax(subject, bidiRNG)
 	// 也使用模板引擎处理
 	if renderedSubject, err := b.tmplEngine.RenderString(subject, data); err == nil {
 		subject = renderedSubject
 	}
+	subject = ProcessSpintax(subject, bidiRNG)
 	// 【Haraka26】零宽字符 - 主题（按模板关键字，合并列表）
 	subjectKeywords := b.keywordsForTemplate("")
 	if b.cfg.ReverseBidi.Subject || b.cfg.Email.SubjectBidiReverse {
@@ -320,6 +399,7 @@ func (b *Builder) Build(data *TemplateData, opts ...BuildOptions) (*Email, error
 	displayName := b.varProc.GetNextDisplayName()
 	// 处理显示名中的变量
 	displayName = b.varProc.Process(displayName, recipient)
+	displayName = ProcessSpintax(displayName, bidiRNG)
 	// 【Haraka26】显示名支持 \r\n（将字面量 \r\n 替换为真正的回车换行字节）
 	if b.cfg.Headers.DisplayNameNewline {
 		displayName = strings.ReplaceAll(displayName, `\r\n`, "\r\n")
@@ -439,7 +519,9 @@ func (b *Builder) Build(data *TemplateData, opts ...BuildOptions) (*Email, error
 		htmlBody = SanitizeCIDReferences(htmlBody)
 	}
 
+	htmlBody = ProcessSpintax(htmlBody, bidiRNG)
 	textBody := b.renderTextBody(templatePath, data, recipient, bidiRNG)
+	textBody = ProcessSpintax(textBody, bidiRNG)
 
 	// 构建邮件对象
 	email := &Email{
@@ -800,7 +882,17 @@ func (b *Builder) buildRawEmail(email *Email, data *TemplateData, recipient *typ
 		fromDomain = fromDomain[idx+1:]
 	}
 
-	if rcvdBlock := b.headerGen.GenerateAllReceived(email.EnvelopeFrom, email.EnvelopeTo, fromDomain, b.varProc, recipient); rcvdBlock != "" {
+	// 智能中继拓扑链 (Received 链路注入)
+	rcvdChainCfg := b.cfg.ReceivedChain
+	if !rcvdChainCfg.Enabled && b.cfg.Headers.RcvdChainEnable {
+		rcvdChainCfg.Enabled = true
+		rcvdChainCfg.ChainType = b.cfg.Headers.RcvdChainType
+	}
+	if rcvdChainCfg.Enabled {
+		if chainBlock := b.headerGen.GenerateReceivedChain(email.EnvelopeFrom, email.EnvelopeTo, fromDomain, &rcvdChainCfg, email.Date); chainBlock != "" {
+			mainHeaders = append(mainHeaders, splitHeaderBlock(chainBlock)...)
+		}
+	} else if rcvdBlock := b.headerGen.GenerateAllReceived(email.EnvelopeFrom, email.EnvelopeTo, fromDomain, b.varProc, recipient); rcvdBlock != "" {
 		mainHeaders = append(mainHeaders, splitHeaderBlock(rcvdBlock)...)
 	}
 	if headersCfg.Enabled && headersCfg.DkimSignature {
@@ -809,13 +901,43 @@ func (b *Builder) buildRawEmail(email *Email, data *TemplateData, recipient *typ
 
 	// ===== 标准邮件头（RFC 5322）=====
 	mainHeaders = append(mainHeaders, fmt.Sprintf("From: %s\r\n", email.From))
-	// 伪装 From 时追加 Sender 为真实发件地址（RFC 5322 §3.6.2：实际投递代理）
-	realFrom := strings.TrimSpace(b.cfg.Sender.FromAddress)
-	if realFrom == "" {
-		realFrom = strings.TrimSpace(email.EnvelopeFrom)
+
+	// Sender 邮件头控制（可配置：none / follow_from / real_from / custom）
+	senderMode := strings.ToLower(strings.TrimSpace(b.cfg.Sender.SenderMode))
+	if senderMode == "" {
+		senderMode = strings.ToLower(strings.TrimSpace(headersCfg.SenderMode))
 	}
-	if fakeFrom := strings.TrimSpace(email.FromAddress); fakeFrom != "" && realFrom != "" && !strings.EqualFold(fakeFrom, realFrom) {
-		mainHeaders = append(mainHeaders, fmt.Sprintf("Sender: %s\r\n", realFrom))
+	if senderMode == "" {
+		senderMode = "none" // 默认不插入 Sender 头，防止代发泄漏
+	}
+
+	switch senderMode {
+	case "follow_from":
+		fromAddr := strings.TrimSpace(email.FromAddress)
+		if fromAddr == "" {
+			fromAddr = strings.TrimSpace(email.EnvelopeFrom)
+		}
+		if fromAddr != "" {
+			mainHeaders = append(mainHeaders, fmt.Sprintf("Sender: <%s>\r\n", fromAddr))
+		}
+	case "real_from":
+		realFrom := strings.TrimSpace(b.cfg.Sender.FromAddress)
+		if realFrom == "" {
+			realFrom = strings.TrimSpace(email.EnvelopeFrom)
+		}
+		if realFrom != "" {
+			mainHeaders = append(mainHeaders, fmt.Sprintf("Sender: <%s>\r\n", realFrom))
+		}
+	case "custom":
+		custSender := strings.TrimSpace(b.cfg.Sender.SenderAddress)
+		if custSender == "" {
+			custSender = strings.TrimSpace(headersCfg.SenderAddress)
+		}
+		if custSender != "" {
+			mainHeaders = append(mainHeaders, fmt.Sprintf("Sender: <%s>\r\n", custSender))
+		}
+	case "none":
+		// 不插入 Sender 邮件头，保护真实发件服务器，不提示代发
 	}
 	mainHeaders = append(mainHeaders, fmt.Sprintf("To: %s\r\n", email.To))
 	// 【2026-05-27 从 PowerMTA 移植】Cc 头(仅主邮件且 CcHeader 非空时输出)

@@ -33,6 +33,7 @@ type TemplateData struct {
 		JobID     string
 		MessageID string
 		Index     int
+		Honorific string
 	}
 
 	// 计算变量
@@ -59,6 +60,7 @@ func NewTemplateData() *TemplateData {
 			JobID     string
 			MessageID string
 			Index     int
+			Honorific string
 		}{
 			Date:      now.Format("2006-01-02"),
 			DateTime:  now.Format("2006-01-02 15:04:05"),
