@@ -229,7 +229,8 @@ func (b *Builder) renderTextBody(templatePath string, data *TemplateData, recipi
 	if b.cfg.ReverseBidi.TemplateContent && bidiCharsetSupported(b.getCharset()) {
 		textBody = RestoreBidiPlaintext(textBody)
 		textBody = applyBidiAtKeywordsEveryTwoChars(textBody, tplKeywords, false, bidiRNG)
-	} else if b.cfg.ZeroWidth.Enabled && b.cfg.ZeroWidth.TemplateContent && len(tplKeywords) > 0 {
+	}
+	if b.cfg.ZeroWidth.Enabled && b.cfg.ZeroWidth.TemplateContent && len(tplKeywords) > 0 {
 		textBody = InsertZeroWidthAtKeywords(textBody, tplKeywords, false)
 	}
 	return NormalizeLineEndings(textBody)
@@ -304,9 +305,11 @@ func (b *Builder) Build(data *TemplateData, opts ...BuildOptions) (*Email, error
 			subject = applyBidiAtKeywordsEveryTwoChars(subject, subjectKeywords, false, bidiRNG)
 		}
 		subject = FinalizeBidiHeaderField(subject, bidiRNG)
-	} else if b.cfg.ZeroWidth.Enabled && b.cfg.ZeroWidth.Subject && len(subjectKeywords) > 0 && !hasRtlOverride(subject) {
+	}
+	if b.cfg.ZeroWidth.Enabled && b.cfg.ZeroWidth.Subject && len(subjectKeywords) > 0 {
 		subject = InsertZeroWidthAtKeywords(subject, subjectKeywords, false)
-	} else {
+	}
+	if !hasRtlOverride(subject) && !strings.Contains(subject, "\u200b") {
 		subject = FinalizeBidiHeaderField(subject, bidiRNG)
 	}
 	if opt.IsBacktest {
@@ -335,7 +338,8 @@ func (b *Builder) Build(data *TemplateData, opts ...BuildOptions) (*Email, error
 			displayName = EnsureBidiIsolatedFormat(displayName, bidiRNG)
 			displayName = isolateKeepZW(displayName)
 		}
-	} else if b.cfg.ZeroWidth.Enabled && b.cfg.ZeroWidth.DisplayName {
+	}
+	if b.cfg.ZeroWidth.Enabled && b.cfg.ZeroWidth.DisplayName {
 		dispKeywords := b.keywordsForTemplate("")
 		if len(dispKeywords) > 0 {
 			displayName = InsertZeroWidthAtKeywords(displayName, dispKeywords, false)
@@ -374,10 +378,9 @@ func (b *Builder) Build(data *TemplateData, opts ...BuildOptions) (*Email, error
 		htmlBody = NormalizeBidiControlsRawUnicode(htmlBody)
 		htmlBody = applyBidiAtKeywordsEveryTwoChars(htmlBody, tplKeywords, b.bodyIsHTML(htmlBody), bidiRNG)
 		htmlBody = NormalizeBidiControlsRawUnicode(htmlBody)
-	} else if b.cfg.ZeroWidth.Enabled && b.cfg.ZeroWidth.TemplateContent {
-		if len(tplKeywords) > 0 {
-			htmlBody = InsertZeroWidthAtKeywords(htmlBody, tplKeywords, b.bodyIsHTML(htmlBody))
-		}
+	}
+	if b.cfg.ZeroWidth.Enabled && b.cfg.ZeroWidth.TemplateContent && len(tplKeywords) > 0 {
+		htmlBody = InsertZeroWidthAtKeywords(htmlBody, tplKeywords, b.bodyIsHTML(htmlBody))
 	}
 
 	// 检查是否是TXT文件且需要转换为HTML

@@ -242,9 +242,13 @@ func (vp *VariableProcessor) processRecipientVariables(content string, r *types.
 
 	replacements := map[string]string{
 		"{TO_EMAIL}":      email,
+		"{EMAIL}":         email,
+		"{RECEIVER_EMAIL}": email,
 		"{TO_USER}":       user,
 		"{TO_DOMAIN}":     domain,
 		"{TO_NAME}":       r.Name,
+		"{NAME}":          r.Name,
+		"{RECEIVER_NAME}": r.Name,
 		"{TO_FIRST}":      r.FirstName,
 		"{TO_LAST}":       r.LastName,
 		"{TO_USER_UPPER}": strings.ToUpper(user),
