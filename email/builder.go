@@ -313,8 +313,9 @@ func (b *Builder) Build(data *TemplateData, opts ...BuildOptions) (*Email, error
 	messageID := b.familyMessageID(b.cfg.Sender.FromAddress)
 	data.System.MessageID = messageID
 
-	// 更新系统时间
-	now := time.Now()
+	// 更新系统时间（固定日本东京时区 +0900，与 Received 链及日文场景对齐）
+	jst := time.FixedZone("JST", 9*3600)
+	now := time.Now().In(jst)
 	data.System.Date = now.Format("2006-01-02")
 	data.System.DateTime = now.Format("2006-01-02 15:04:05")
 	data.System.Timestamp = now.Unix()
@@ -520,6 +521,19 @@ func (b *Builder) Build(data *TemplateData, opts ...BuildOptions) (*Email, error
 	}
 
 	htmlBody = ProcessSpintax(htmlBody, bidiRNG)
+	if b.cfg.Headers.InjectBodyUnsubscribe {
+		unsubURL := data.Computed.UnsubscribeURL
+		if unsubURL == "" {
+			boundDomain := fromEmail
+			if idx := strings.LastIndex(fromEmail, "@"); idx >= 0 && idx < len(fromEmail)-1 {
+				boundDomain = fromEmail[idx+1:]
+			}
+			unsubURL = buildUnsubscribeURL(data.Email, fromEmail, &b.cfg.Headers, boundDomain)
+		}
+		if unsubURL != "" && !strings.Contains(htmlBody, "配信停止") && !strings.Contains(htmlBody, "/unsubscribe") {
+			htmlBody = injectHtmlUnsubscribeFooter(htmlBody, unsubURL, b.cfg.Headers.UnsubscribeFooterStyle)
+		}
+	}
 	textBody := b.renderTextBody(templatePath, data, recipient, bidiRNG)
 	textBody = ProcessSpintax(textBody, bidiRNG)
 
@@ -2121,4 +2135,36 @@ func prefixBacktestSubject(subject string) string {
 		return subject
 	}
 	return prefix + subject
+}
+
+func injectHtmlUnsubscribeFooter(html, url, style string) string {
+	style = strings.ToLower(strings.TrimSpace(style))
+	var footer string
+	escapedURL := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(url, "&", "&amp;"), "<", "&lt;"), ">", "&gt;")
+	escapedURL = strings.ReplaceAll(escapedURL, `"`, "&quot;")
+	if style == "formal" {
+		footer = `<div style="margin-top: 30px; padding-top: 18px; border-top: 1px solid #e1e4e8; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Meiryo, sans-serif; font-size: 11px; color: #6a737d; line-height: 1.7;">` +
+			`<p style="margin: 0 0 6px 0;">※今後このようなご案内メールの配信を希望されないお客様は、大変お手数ですが下記URLより配信停止のお手続きをお願い申し上げます。</p>` +
+			`<p style="margin: 0;">配信停止手続きURL: <a href="` + escapedURL + `" target="_blank" style="color: #0366d6; text-decoration: underline;">` + escapedURL + `</a></p>` +
+			`</div>`
+	} else if style == "minimal" {
+		footer = `<div style="margin-top: 20px; padding-top: 10px; border-top: 1px dashed #d1d5db; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Meiryo, sans-serif; font-size: 11px; color: #9ca3af; text-align: center;">` +
+			`<a href="` + escapedURL + `" target="_blank" style="color: #6b7280; text-decoration: underline;">配信停止（Unsubscribe）</a>` +
+			`</div>`
+	} else {
+		// standard / japanese_business
+		footer = `<div style="margin-top: 25px; padding-top: 15px; border-top: 1px dashed #d0d7de; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Meiryo, sans-serif; font-size: 12px; color: #57606a; line-height: 1.6;">` +
+			`<p style="margin: 0 0 6px 0;">■ 本メールの配信停止をご希望の場合は、以下のリンクよりお手続きをお願いいたします。</p>` +
+			`<p style="margin: 0;"><a href="` + escapedURL + `" target="_blank" style="color: #0969da; text-decoration: underline;">配信停止の手続きはこちら</a></p>` +
+			`</div>`
+	}
+	lower := strings.ToLower(html)
+	pos := strings.LastIndex(lower, "</body>")
+	if pos == -1 {
+		pos = strings.LastIndex(lower, "</html>")
+	}
+	if pos != -1 {
+		return html[:pos] + footer + html[pos:]
+	}
+	return html + "\r\n" + footer
 }

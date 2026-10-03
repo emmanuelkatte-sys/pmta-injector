@@ -433,6 +433,8 @@ type HeadersConfig struct {
 	UnsubscribeQueryParam      string `yaml:"unsubscribe_query_param,omitempty"`
 	UnsubscribeMailtoDomain    string `yaml:"unsubscribe_mailto_domain,omitempty"`
 	UnsubscribeHeaderFoldWidth int    `yaml:"unsubscribe_header_fold_width,omitempty"`
+	InjectBodyUnsubscribe      bool   `yaml:"inject_body_unsubscribe"`
+	UnsubscribeFooterStyle     string `yaml:"unsubscribe_footer_style,omitempty"`
 	FeedbackID          bool `yaml:"feedback_id"`
 	Precedence          bool `yaml:"precedence"`
 
