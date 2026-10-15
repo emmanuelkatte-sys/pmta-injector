@@ -400,6 +400,9 @@ type HeadersConfig struct {
 	CustomFromEmails  []string `yaml:"custom_from_emails"`
 	// 每封邮件随机 local-part，保留当前 From 域名（SMTP 认证仍用 sender.from_address）
 	FromAddressRandomPrefix bool `yaml:"from_address_random_prefix"`
+	// 每封邮件随机子域名，保留发件根域名（如 user@x7b2.example.com）
+	FromAddressRandomSubdomain bool `yaml:"from_address_random_subdomain"`
+	RandomSubdomain            bool `yaml:"random_subdomain"`
 	// User-Agent（桌面客户端模拟；按 client_profile 池轮换）
 	UserAgent bool `yaml:"user_agent,omitempty"`
 	// ClientProfile 子域绑定的客户端指纹：outlook / apple / thunderbird / gmail / becky / emclient

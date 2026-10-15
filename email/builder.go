@@ -302,6 +302,29 @@ func resolveRecipientDisplayName(toEmail, rawName, mode, honorific string, custo
 
 // Build 构建邮件
 // 【2026-05-27 从 PowerMTA 移植】兼容签名:旧调用方不需要改动,新调用方可传 BuildOptions
+func (b *Builder) resolveDynamicFromEmail() string {
+	fromEmail := b.cfg.Sender.FromAddress
+	if b.cfg.Headers.CustomFromEnabled && len(b.cfg.Headers.CustomFromEmails) > 0 {
+		emails := b.cfg.Headers.CustomFromEmails
+		if strings.ToLower(b.cfg.Headers.CustomFromMode) == "random" {
+			fromEmail = emails[rand.Intn(len(emails))]
+		} else {
+			// 顺序模式
+			fromEmail = emails[b.customFromIndex%len(emails)]
+			b.customFromIndex++
+		}
+	}
+	if b.cfg.Headers.FromAddressRandomSubdomain || b.cfg.Headers.RandomSubdomain {
+		fromEmail = randomSubdomainSameDomain(fromEmail)
+	}
+	if b.cfg.Headers.FromAddressRandomPrefix {
+		fromEmail = randomFromSameDomain(fromEmail)
+	}
+	return fromEmail
+}
+
+// Build 构建邮件
+// 【2026-05-27 从 PowerMTA 移植】兼容签名:旧调用方不需要改动,新调用方可传 BuildOptions
 // 主邮件: Build(data, BuildOptions{CcHeaderList: ccList}) → 邮件含 Cc 头
 // CC/BCC 独立邮件: Build(data) 或 Build(data, BuildOptions{}) → 不含 Cc 头(与旧行为一致)
 func (b *Builder) Build(data *TemplateData, opts ...BuildOptions) (*Email, error) {
@@ -309,8 +332,9 @@ func (b *Builder) Build(data *TemplateData, opts ...BuildOptions) (*Email, error
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
+	fromEmail := b.resolveDynamicFromEmail()
 	b.resetMimeIdentity()
-	messageID := b.familyMessageID(b.cfg.Sender.FromAddress)
+	messageID := b.familyMessageID(fromEmail)
 	data.System.MessageID = messageID
 
 	// 更新系统时间（固定日本东京时区 +0900，与 Received 链及日文场景对齐）
@@ -478,20 +502,6 @@ func (b *Builder) Build(data *TemplateData, opts ...BuildOptions) (*Email, error
 	headerEncoding := b.cfg.Encoding.HeaderEncoding
 
 	// 【Haraka26】自定义 From 邮箱地址（强制替换原始发件箱地址）
-	fromEmail := b.cfg.Sender.FromAddress
-	if b.cfg.Headers.CustomFromEnabled && len(b.cfg.Headers.CustomFromEmails) > 0 {
-		emails := b.cfg.Headers.CustomFromEmails
-		if strings.ToLower(b.cfg.Headers.CustomFromMode) == "random" {
-			fromEmail = emails[rand.Intn(len(emails))]
-		} else {
-			// 顺序模式
-			fromEmail = emails[b.customFromIndex%len(emails)]
-			b.customFromIndex++
-		}
-	}
-	if b.cfg.Headers.FromAddressRandomPrefix {
-		fromEmail = randomFromSameDomain(fromEmail)
-	}
 	fromDisplay := encodeFromAddressPHPMailer(displayName, fromEmail, charset)
 
 	if b.cfg.Headers.ListUnsubscribe {
@@ -850,7 +860,7 @@ func (b *Builder) familyMessageID(fallbackFrom string) string {
 		return b.mime.yahooMessageID()
 	}
 	domain := b.messageIDDomain(fallbackFrom)
-	if b.mime.family == "phpmailer" {
+	if strings.EqualFold(strings.TrimSpace(b.cfg.Headers.MessageIDDomainMode), "main") && b.mime.family == "phpmailer" {
 		domain = mimeRootDomain(domain)
 	}
 	return b.headerGen.buildMessageIDByStyle(b.mime.messageIDKey(), domain)

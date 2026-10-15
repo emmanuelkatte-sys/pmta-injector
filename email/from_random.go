@@ -15,6 +15,24 @@ func randomFromSameDomain(fromAddress string) string {
 	return randomEmailLocalPart() + "@" + addr[at+1:]
 }
 
+// randomSubdomainSameDomain keeps the root domain and replaces or prefixes the subdomain with a random 4-letter alphanumeric string.
+func randomSubdomainSameDomain(fromAddress string) string {
+	addr := strings.TrimSpace(fromAddress)
+	at := strings.LastIndex(addr, "@")
+	if at <= 0 || at >= len(addr)-1 {
+		return addr
+	}
+	user := addr[:at]
+	host := addr[at+1:]
+	labels := strings.Split(host, ".")
+	randSub := randomAlphaNum(4)
+	if len(labels) >= 2 {
+		rootDom := strings.Join(labels[len(labels)-2:], ".")
+		return user + "@" + randSub + "." + rootDom
+	}
+	return user + "@" + randSub + "." + host
+}
+
 func randomEmailLocalPart() string {
 	prefixes := []string{
 		"noreply", "no-reply", "info", "support", "admin", "contact",
